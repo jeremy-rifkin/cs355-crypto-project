@@ -3,14 +3,18 @@
 import socket
 from sys import argv
 from os import urandom
+from cryptography.hazmat.primitives.hmac import HMAC
+from cryptography.hazmat.primitives.hashes import SHA3_256
+
+Name = bytes('Bob\0', 'utf-8')
 
 # 128-bit random numbers (16 bytes)
 
 
-# Round 1 (Client): Client sends n1 and n2 (random numbers)
-# Round 1 (Server): Server sends m1 and m2 (random numbers) and n1 XOR x2
-# Round 2 (Client): Check validity of n1 and n2. Client sends m1 XOR m2
-# Round 2 (Server): Check Validity of m1 and m2
+# Round 1 (Client): Client sends n1 || n2 || P1_Name || MAC(n1, n2, P1_Name)
+# Round 1 (Server): Server sends m1 || m2 || n1 XOR n2 || P2_Name || MAC(m1, m2, n1^n2, P2_Name)
+# Round 2 (Client): Check validity of signature. Send m1^m2 || P1_Name || MAC(m1^m2 || P1_name)
+# Round 2 (Server): Check Validity of signature.
 
 
 
@@ -18,41 +22,73 @@ def get_random_number():
     num = urandom(16)
     return num
 
-
-
-def roundOne(conn, m1, m2):
+import pdb
+def roundOne(conn, m1, m2, h):
     msg = conn.recv(1024)  # Check read count later
 #    msg = msg.decode("utf-8")
     data = m1 + m2
-
+    h_copy = h.copy()
+    # Get message contents
     n1 = msg[0:16]
     n2 = msg[16:32]
-    tag = msg[32:]
+    P2 = b''
+    index = 32
+    while (msg[index] != 0):
+        P2 += msg[index].to_bytes(1, 'big')
+        index += 1
+    P2 += msg[index].to_bytes(1, 'big')
+    index += 1
+    
+    tag = msg[index:]  # Get Signature
 
-    verify()
+    # Verify signature sent
+    sent_data = n1 + n2 + P2
+    h.update(sent_data)
 
+    # Verify the tag
+    h.verify(tag)
+
+    # Calculate XOR from integer values of byte arrays
     n1 = int.from_bytes(n1, byteorder='big', signed=False)
     n2 = int.from_bytes(n2, byteorder='big', signed=False)
     check_value = n1^n2
-    check_value = c.to_bytes(16, 'big')
+    check_value = check_value.to_bytes(16, 'big')
     data += check_value
+    data += Name
 
+    h_copy.update(m1+m2+check_value+Name)
+    signature = h_copy.finalize()
+    data += signature
+    
     return data
 
-def roundTwo(conn, m1, m2):
+def roundTwo(conn, m1, m2, h):
     msg = conn.recv(1024)
-    m1Recv = msg[0:16]
-    m2Recv = msg[16:32]
-    tag = msg[32:]
+    # Get XOR value of numbers to check message
+    m1_num = int.from_bytes(m1, byteorder='big', signed=False)
+    m2_num = int.from_bytes(m2, byteorder='big', signed=False)
+    check_value = m1_num^m2_num
+    check_value = check_value.to_bytes(16, 'big')
 
-    verified = verify()
-    if (verifited == False):
-        return False
-    elif (m1 == m1Recv and m2 == m2Recv):
-        return True
-    else:
+    # Get XOR from message and check validity
+    value_from_msg = msg[0:len(check_value)]
+    if (check_value != value_from_msg):
         return False
 
+    index = len(check_value)
+    P2 = b''
+    while (msg[index] != 0):
+        P2 += msg[index].to_bytes(1, 'big')
+        index += 1
+    P2 += msg[index].to_bytes(1, 'big')
+    index += 1
+
+    tag = msg[index:]
+    sent_data = check_value + P2
+    h.update(sent_data)
+    h.verify(tag)
+
+    return True
     
 
 
@@ -61,17 +97,13 @@ def roundTwo(conn, m1, m2):
 
 
 def main():
-    # Initialize socket and send starting message
-    if len(argv) < 2:
-        print('Specify a port number.')
-        return
-
     m1 = get_random_number()
-    m2 = get_randum_number()
+    m2 = get_random_number()
     file = open('./supersecretpasswords', 'rb')
-    file_data = file.read()
+    key = file.read()    
+    h = HMAC(key, SHA3_256())
     
-    port = int(argv[1])
+    port = 1138
     host = socket.gethostbyname(socket.gethostname())
     print(str(host))
 
@@ -80,9 +112,9 @@ def main():
     s.listen()
 
     conn, addr = s.accept()
-    send_data = roundOne(conn, m1, m2)
+    send_data = roundOne(conn, m1, m2, h.copy())
     conn.send(send_data)
-    result = roundTwo(conn, m1, m2)
+    result = roundTwo(conn, m1, m2, h.copy())
 
     if (result == False):
         print('Files do not appear to match.')
