@@ -1,31 +1,21 @@
 # Server for exchange. Sets up communication method.
 
 import socket
-from sys import argv
-from os import urandom
 from cryptography.hazmat.primitives.hmac import HMAC
 from cryptography.hazmat.primitives.hashes import SHA3_256
+from common import RANDOM_NUMBER_BYTES, generate_random
 
 Name = bytes('Bob\0', 'utf-8')
 
 # 128-bit random numbers (16 bytes)
-
 
 # Round 1 (Client): Client sends n1 || n2 || P1_Name || MAC(n1, n2, P1_Name)
 # Round 1 (Server): Server sends m1 || m2 || n1 XOR n2 || P2_Name || MAC(m1, m2, n1^n2, P2_Name)
 # Round 2 (Client): Check validity of signature. Send m1^m2 || P1_Name || MAC(m1^m2 || P1_name)
 # Round 2 (Server): Check Validity of signature.
 
-
-
-def get_random_number():
-    num = urandom(16)
-    return num
-
-import pdb
 def roundOne(conn, m1, m2, h):
     msg = conn.recv(1024)  # Check read count later
-#    msg = msg.decode("utf-8")
     data = m1 + m2
     h_copy = h.copy()
     # Get message contents
@@ -89,18 +79,12 @@ def roundTwo(conn, m1, m2, h):
     h.verify(tag)
 
     return True
-    
-
-
-
-
-
 
 def main():
-    m1 = get_random_number()
-    m2 = get_random_number()
+    m1 = generate_random(RANDOM_NUMBER_BYTES)
+    m2 = generate_random(RANDOM_NUMBER_BYTES)
     file = open('./supersecretpasswords', 'rb')
-    key = file.read()    
+    key = file.read()
     h = HMAC(key, SHA3_256())
     
     port = 1138
@@ -120,17 +104,5 @@ def main():
         print('Files do not appear to match.')
     else:
         print('Files match!')
-
-        
-
-    
-
-    
-    
-
-    
-
-
-
 
 main()
