@@ -1,12 +1,13 @@
 #!/usr/bin/python3
 # Server for exchange. Sets up communication method.
 
+import signal
 import socket
 import sys
 from cryptography.hazmat.primitives.hmac import HMAC
 from cryptography.hazmat.primitives.hashes import SHA3_256
 
-from common import KEY_SIZE_BITS, MAX_NAME_LENGTH, RANDOM_NUMBER_BYTES, authenticate, generate_random, parse_server, sha3_file, verify, xor_bytes
+from common import *
 
 def help():
     print("usage: ./client.py password_file client_name target_ip:port target_name")
@@ -18,23 +19,20 @@ secret_key = None
 # Round 2 (Client): Check validity of signature. Send m1^m2 || P1_Name || MAC(m1^m2 || P1_name)
 # Round 2 (Server): Check Validity of signature.
 
-def send_initial_challenge(s, n1, n2, client_name):
+def send_initial_challenge(s, n1, n2, client_name, target_name):
     # Get signature to send
     message = n1 + n2 + client_name
-    print("2. Sending {} message {{{}, {}, {}, MAC}}".format(client_name, n1.hex(), n2.hex(), client_name))
+    print("2. Sending {} message {{{}, {}, {}, MAC}}".format(target_name, n1.hex(), n2.hex(), client_name))
     s.send(authenticate(message, secret_key))
 
 # returns (m1, m2)
 def receive_response(s, n1, n2, client_name, target_name):
     msg = s.recv(1024)
+    m1, m2, xor_from_message, name_from_message = parse_message(4, msg)
     xor = xor_bytes(n1, n2)
     assert len(xor) == RANDOM_NUMBER_BYTES
-    m1 = msg[0:16]
-    m2 = msg[16:32]
-    xor_from_message = msg[32:32+len(xor)]
-    name_from_message = msg[RANDOM_NUMBER_BYTES * 3 : len(msg) - KEY_SIZE_BITS // 8]
-    print("4. Received {{{}, {}, {}, {}, {}, MAC}} from {}".format(m1.hex(), m2.hex(), xor_from_message.hex(), client_name))
-    if not verify(msg):
+    print("4. Received {{{}, {}, {}, {}, MAC}} from {}".format(m1.hex(), m2.hex(), xor_from_message.hex(), name_from_message, client_name))
+    if not verify(msg, secret_key):
         print("Failed to verify with {}".format(target_name))
         print("Either files do not match or there is malice in play")
         sys.exit(1)
@@ -49,10 +47,11 @@ def receive_response(s, n1, n2, client_name, target_name):
     print("5. MAC, xor, and name verified")
     return (m1, m2)
 
-def respond_to_challenge(s, m1, m2, client_name):
+def respond_to_challenge(s, m1, m2, client_name, target_name):
     xor = xor_bytes(m1, m2)
     assert len(xor) == RANDOM_NUMBER_BYTES
     message = xor + client_name
+    print("6. Sending {} message {{{}, {}, MAC}}".format(target_name, xor.hex(), client_name))
     s.send(authenticate(message, secret_key))
 
 def main():
@@ -80,11 +79,11 @@ def main():
     n1 = generate_random(RANDOM_NUMBER_BYTES)
     n2 = generate_random(RANDOM_NUMBER_BYTES)
     # step 2
-    send_initial_challenge(s, n1, n2, client_name)
+    send_initial_challenge(s, n1, n2, client_name, target_name)
     # step 4 and 5
     m1, m2 = receive_response(s, n1, n2, client_name, target_name)
     # step 6
-    respond_to_challenge(s, m1, m2, client_name)
+    respond_to_challenge(s, m1, m2, client_name, target_name)
 
     print("Verified with {}".format(target_name))
 
