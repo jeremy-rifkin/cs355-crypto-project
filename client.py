@@ -6,66 +6,54 @@ import sys
 from cryptography.hazmat.primitives.hmac import HMAC
 from cryptography.hazmat.primitives.hashes import SHA3_256
 
-from common import RANDOM_NUMBER_BYTES, generate_random, parse_server
+from common import KEY_SIZE_BITS, MAX_NAME_LENGTH, RANDOM_NUMBER_BYTES, authenticate, generate_random, parse_server, sha3_file, verify, xor_bytes
 
 def help():
     print("usage: ./client.py password_file client_name target_ip:port target_name")
+
+secret_key = None
 
 # Round 1 (Client): Client sends n1 || n2 || P1_Name || MAC(n1, n2, P1_Name)
 # Round 1 (Server): Server sends m1 || m2 || n1 XOR n2 || P2_Name || MAC(m1, m2, n1^n2, P2_Name)
 # Round 2 (Client): Check validity of signature. Send m1^m2 || P1_Name || MAC(m1^m2 || P1_name)
 # Round 2 (Server): Check Validity of signature.
 
-def roundOne(s, m1, m2, h, client_name):
+def send_initial_challenge(s, n1, n2, client_name):
     # Get signature to send
-    send_data = m1 + m2 + client_name
-    h.update(send_data)
-    signature = h.finalize()
-    send_data += signature
+    message = n1 + n2 + client_name
+    print("2. Sending {} message {{{}, {}, {}, MAC}}".format(client_name, n1.hex(), n2.hex(), client_name))
+    s.send(authenticate(message, secret_key))
 
-    return send_data
-
-def roundTwo(s, m1, m2, h, client_name):
+# returns (m1, m2)
+def receive_response(s, n1, n2, client_name, target_name):
     msg = s.recv(1024)
-    h_copy = h.copy()
-    # Get XOR value of numbers to check message
-    m1_num = int.from_bytes(m1, byteorder="big", signed=False)
-    m2_num = int.from_bytes(m2, byteorder="big", signed=False)
-    check_value = m1_num^m2_num
-    check_value = check_value.to_bytes(16, "big", signed=False)
+    xor = xor_bytes(n1, n2)
+    assert len(xor) == RANDOM_NUMBER_BYTES
+    m1 = msg[0:16]
+    m2 = msg[16:32]
+    xor_from_message = msg[32:32+len(xor)]
+    name_from_message = msg[RANDOM_NUMBER_BYTES * 3 : len(msg) - KEY_SIZE_BITS // 8]
+    print("4. Received {{{}, {}, {}, {}, {}, MAC}} from {}".format(m1.hex(), m2.hex(), xor_from_message.hex(), client_name))
+    if not verify(msg):
+        print("Failed to verify with {}".format(target_name))
+        print("Either files do not match or there is malice in play")
+        sys.exit(1)
+    if name_from_message != target_name:
+        print("Failed to verify with {}: Name doesn't match".format(target_name))
+        print("This means {} isn't following the protocol or an impostor is among us".format(target_name))
+        sys.exit(1)
+    if xor != xor_from_message:
+        print("Failed to verify with {}: failed to authenticate with the given challenge".format(target_name))
+        print("This means {} isn't following the protocol or an impostor is among us".format(target_name))
+        sys.exit(1)
+    print("5. MAC, xor, and name verified")
+    return (m1, m2)
 
-    n1 = msg[0:16]
-    n2 = msg[16:32]
-    
-    # Get XOR from message and check validity
-    value_from_msg = msg[32:32+len(check_value)]
-    if (check_value != value_from_msg):
-        return False
-
-    index = len(check_value) + 32
-    P2 = b""
-    while (msg[index] != 0):
-        P2 += msg[index].to_bytes(1, "big")
-        index += 1
-    P2 += msg[index].to_bytes(1, "big")
-    index += 1
-
-    tag = msg[index:]
-    sent_data = n1+n2+check_value + P2
-    h.update(sent_data)
-    h.verify(tag)
-
-    n1_num = int.from_bytes(n1, byteorder="big", signed=False)
-    n2_num = int.from_bytes(n2, byteorder="big", signed=False)
-    new_value = n1_num^n2_num
-    new_value = new_value.to_bytes(16, "big")
-    send_data = new_value + client_name
-    h_copy.update(send_data)
-    signature = h_copy.finalize()
-    send_data += signature
-
-    s.send(send_data)
-    return True
+def respond_to_challenge(s, m1, m2, client_name):
+    xor = xor_bytes(m1, m2)
+    assert len(xor) == RANDOM_NUMBER_BYTES
+    message = xor + client_name
+    s.send(authenticate(message, secret_key))
 
 def main():
     if len(sys.argv) != 5:
@@ -77,24 +65,27 @@ def main():
     ip, port = parse_server(sys.argv[3])
     target_name = str.encode(sys.argv[4]) + bytes([0])
 
-    m1 = generate_random(RANDOM_NUMBER_BYTES)
-    m2 = generate_random(RANDOM_NUMBER_BYTES)
-    file = open(password_file, "rb")
-    key = file.read()
-    h = HMAC(key, SHA3_256())
-    
+    assert len(client_name) < MAX_NAME_LENGTH
+    assert len(target_name) < MAX_NAME_LENGTH
+
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print("Connecting to {}:{}".format(ip, port))
     s.connect((ip, port))
-    print("Connected to Server.")
+    print("Connected")
 
-    send_data = roundOne(s, m1, m2, h.copy(), client_name)
-    s.send(send_data)
-    result = roundTwo(s, m1, m2, h.copy(), client_name)
+    global secret_key
+    secret_key = sha3_file(password_file)
+    print("1. Derrived shared secret key from file")
 
-    if (result == False):
-        print("Files do not appear to match.")
-    else:
-        print("Files match!")
+    n1 = generate_random(RANDOM_NUMBER_BYTES)
+    n2 = generate_random(RANDOM_NUMBER_BYTES)
+    # step 2
+    send_initial_challenge(s, n1, n2, client_name)
+    # step 4 and 5
+    m1, m2 = receive_response(s, n1, n2, client_name, target_name)
+    # step 6
+    respond_to_challenge(s, m1, m2, client_name)
+
+    print("Verified with {}".format(target_name))
 
 main()
