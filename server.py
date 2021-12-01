@@ -1,22 +1,14 @@
 #!/usr/bin/python3
 # Server for exchange. Sets up communication method.
 
-import signal
 import socket
 import sys
-from cryptography.hazmat.primitives.hmac import HMAC
-from cryptography.hazmat.primitives.hashes import SHA3_256
 from common import *
 
 def help():
     print("usage: ./server.py password_file server_name")
 
 secret_key = None
-
-# Round 1 (Client): Client sends n1 || n2 || P1_Name || MAC(n1, n2, P1_Name)
-# Round 1 (Server): Server sends m1 || m2 || n1 XOR n2 || P2_Name || MAC(m1, m2, n1^n2, P2_Name)
-# Round 2 (Client): Check validity of signature. Send m1^m2 || P1_Name || MAC(m1^m2 || P1_name)
-# Round 2 (Server): Check Validity of signature.
 
 # returns (n1, n2, name)
 def receive_initial_challenge(conn):
@@ -83,6 +75,7 @@ def main():
     print("1. Derrived shared secret key from file")
 
     while True:
+        client_name = None
         try:
             conn, addr = s.accept()
             print("=================================================")
@@ -94,9 +87,9 @@ def main():
 
             print("Verified successfully with {}".format(client_name))
         except VerificationFailure:
-            print("Failed to verify with {}".format(client_name))
+            print("Failed to verify with {}".format("<unknown client>" if client_name is None else client_name))
         except KeyboardInterrupt:
             break
-        conn.shutdown()
+        conn.close()
 
 main()

@@ -1,11 +1,8 @@
 #!/usr/bin/python3
 # Server for exchange. Sets up communication method.
 
-import signal
 import socket
 import sys
-from cryptography.hazmat.primitives.hmac import HMAC
-from cryptography.hazmat.primitives.hashes import SHA3_256
 
 from common import *
 
@@ -14,20 +11,21 @@ def help():
 
 secret_key = None
 
-# Round 1 (Client): Client sends n1 || n2 || P1_Name || MAC(n1, n2, P1_Name)
-# Round 1 (Server): Server sends m1 || m2 || n1 XOR n2 || P2_Name || MAC(m1, m2, n1^n2, P2_Name)
-# Round 2 (Client): Check validity of signature. Send m1^m2 || P1_Name || MAC(m1^m2 || P1_name)
-# Round 2 (Server): Check Validity of signature.
-
-def send_initial_challenge(s, n1, n2, client_name, target_name):
-    # Get signature to send
+# returns (n1, n2)
+def send_initial_challenge(s, client_name, target_name):
+    n1 = generate_random(RANDOM_NUMBER_BYTES)
+    n2 = generate_random(RANDOM_NUMBER_BYTES)
     message = n1 + n2 + client_name
     print("2. Sending {} message {{{}, {}, {}, MAC}}".format(target_name, n1.hex(), n2.hex(), client_name))
     s.send(authenticate(message, secret_key))
+    return (n1, n2)
 
 # returns (m1, m2)
 def receive_response(s, n1, n2, client_name, target_name):
     msg = s.recv(1024)
+    if not msg:
+        print("Failed to verify: Connection dropped by server")
+        sys.exit(1)
     m1, m2, xor_from_message, name_from_message = parse_message(4, msg)
     xor = xor_bytes(n1, n2)
     assert len(xor) == RANDOM_NUMBER_BYTES
@@ -76,15 +74,13 @@ def main():
     secret_key = sha3_file(password_file)
     print("1. Derrived shared secret key from file")
 
-    n1 = generate_random(RANDOM_NUMBER_BYTES)
-    n2 = generate_random(RANDOM_NUMBER_BYTES)
     # step 2
-    send_initial_challenge(s, n1, n2, client_name, target_name)
+    n1, n2 = send_initial_challenge(s, client_name, target_name)
     # step 4 and 5
     m1, m2 = receive_response(s, n1, n2, client_name, target_name)
     # step 6
     respond_to_challenge(s, m1, m2, client_name, target_name)
 
-    print("Verified with {}".format(target_name))
+    print("Verified successfully with {}".format(target_name))
 
 main()
