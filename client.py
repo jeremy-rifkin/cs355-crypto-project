@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives.hashes import SHA3_256
 from common import RANDOM_NUMBER_BYTES, generate_random, parse_server
 
 def help():
-    print("./client.py password_file client_name target_ip:port target_name")
+    print("usage: ./client.py password_file client_name target_ip:port target_name")
 
 # Round 1 (Client): Client sends n1 || n2 || P1_Name || MAC(n1, n2, P1_Name)
 # Round 1 (Server): Server sends m1 || m2 || n1 XOR n2 || P2_Name || MAC(m1, m2, n1^n2, P2_Name)
@@ -32,7 +32,7 @@ def roundTwo(s, m1, m2, h, client_name):
     m1_num = int.from_bytes(m1, byteorder="big", signed=False)
     m2_num = int.from_bytes(m2, byteorder="big", signed=False)
     check_value = m1_num^m2_num
-    check_value = check_value.to_bytes(16, "big")
+    check_value = check_value.to_bytes(16, "big", signed=False)
 
     n1 = msg[0:16]
     n2 = msg[16:32]
@@ -68,11 +68,11 @@ def roundTwo(s, m1, m2, h, client_name):
     return True
 
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 5:
         help()
         return
 
-    password_file = sys.arv[1]
+    password_file = sys.argv[1]
     client_name = str.encode(sys.argv[2]) + bytes([0])
     ip, port = parse_server(sys.argv[3])
     target_name = str.encode(sys.argv[4]) + bytes([0])
@@ -84,6 +84,7 @@ def main():
     h = HMAC(key, SHA3_256())
     
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    print("Connecting to {}:{}".format(ip, port))
     s.connect((ip, port))
     print("Connected to Server.")
 
