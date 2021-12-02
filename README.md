@@ -11,6 +11,7 @@
 	- [Non-cryptographic assumptions](#non-cryptographic-assumptions-1)
 - [Proof of Security](#proof-of-security)
 	- [Security goals](#security-goals-1)
+- [Setup](#setup)
 - [References](#references)
 
 Quick not about our protocol: There were some discrepancies between the handout on brightspace and
@@ -35,8 +36,7 @@ crypto infrastructure was provided.
 
 #### Non-cryptographic assumptions
 1. Every party/subcontractor has some sort of unique name and knows who they're talking to.
-2. We will assume the contents of the file are not leaked. If it is leaked, the company has bigger
-   problems than just this protocol being compromised.
+2. The file's contents are not leaked.
 
 #### What we do not cover
 - Our protocol ensures zero false positives but we do not care about false negatives. An adversary
@@ -75,20 +75,22 @@ crypto infrastructure was provided.
    turns out that a random sponge is as strong as a random oracle, except for the effects induced by
    the finite memory" [\[3\]].
 3. HMAC is secure with any secure hash function, similar to what we proved in homework.
-4. We assume the file's contents aren't leaked, that's outside the scope of this project. Without
-   leaks, an adversary can guess the contents of the file naively with probability 1/2^4E9
+4. Without leaks, an adversary can guess the contents of the file naively with probability 1/2^4E9
    (exceptionally slim). But usernames and passwords aren't uniformly random: Suppose each username
    is 128 bits and each password is 128 bits and this file consists of 31.25 million
    username-password pairs. Now suppose each username and each password can be guessed with
    probability 1/2. Even in this extraordinarily extreme case, the probability of correctly
    guessing the file's contents are exceedingly low: 1/2^31.25E6. Even if each pair can be guessed
    with 99.99% probability, you still have a better chance of finding a collision in SHA-256 on your
-   first guess.
+   first guess. We do assume it is in fact a password database and not a stream of 4GB of 1's
+   followed by a random bit.
 
 #### Non-cryptographic assumptions
 1. It's safe to assume every subcontractor has some sort of unique name and knows who they're
    talking to. Every party should know who they're talking to or supposed to be talking to in order
    for the protocol to even begin and an email address suffices for unique name.
+2. We will assume the contents of the file are not leaked. If it is leaked, the company has bigger
+   problems than just this protocol being compromised, it's outside the scope of this project.
 
 ### Proof of Security
 

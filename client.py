@@ -65,18 +65,18 @@ def main():
     assert len(client_name) < MAX_NAME_LENGTH
     assert len(target_name) < MAX_NAME_LENGTH
 
+    global secret_key
+    secret_key = sha3_file(password_file)
+    print("1. Derrived shared secret key from file")
+
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print("Connecting to {}:{}".format(ip, port))
     s.connect((ip, port))
     print("Connected")
 
-    global secret_key
-    secret_key = sha3_file(password_file)
-    print("1. Derrived shared secret key from file")
-
     # step 2
     n1, n2 = send_initial_challenge(s, client_name, target_name)
-    # step 4 and 5
+    # steps 4 and 5
     m1, m2 = receive_response(s, n1, n2, client_name, target_name)
     # step 6
     respond_to_challenge(s, m1, m2, client_name, target_name)
